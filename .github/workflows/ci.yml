@@ -1,0 +1,216 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+            python_cmd: python3
+            binary_path: target/release/ycallr
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            python_cmd: python3
+            binary_path: target/release/ycallr
+          - name: macos-x86_64
+            runner: macos-15-intel
+            platform: macos
+            arch: x86_64
+            python_cmd: python3
+            binary_path: target/release/ycallr
+          - name: macos-aarch64
+            runner: macos-15
+            platform: macos
+            arch: aarch64
+            python_cmd: python3
+            binary_path: target/release/ycallr
+          - name: windows-x86_64
+            runner: windows-2025
+            platform: windows
+            arch: x86_64
+            python_cmd: python
+            binary_path: target/release/ycallr.exe
+          - name: windows-aarch64
+            runner: windows-11-arm
+            platform: windows
+            arch: aarch64
+            python_cmd: python
+            binary_path: target/release/ycallr.exe
+
+    steps:
+      - name: Checkout ycallr-cli
+        uses: actions/checkout@v4
+        with:
+          path: ycallr-cli
+
+      - name: Checkout ycallr-core
+        uses: actions/checkout@v4
+        with:
+          repository: Coditary/ycallr-core
+          path: ycallr-core
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev zstd
+
+      - name: Install macOS prerequisites
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_UPGRADE: 1
+        run: |
+          set -euo pipefail
+          if command -v zstd >/dev/null; then
+            echo "zstd already available"
+            exit 0
+          fi
+          brew install zstd
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ycallr-cli -> target
+
+      - name: Build release binary (Unix)
+        if: runner.os != 'Windows'
+        working-directory: ycallr-cli
+        run: cargo build --release --locked
+
+      - name: Build release binary (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ycallr-cli
+        shell: pwsh
+        run: cargo build --release --locked
+
+      - name: Smoke test binary (Unix)
+        if: runner.os != 'Windows'
+        working-directory: ycallr-cli
+        run: |
+          set -euo pipefail
+          ./${{ matrix.binary_path }} --version
+
+      - name: Smoke test binary (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ycallr-cli
+        shell: pwsh
+        run: ./${{ matrix.binary_path }} --version
+
+      - name: Package release artifact (Unix)
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Windows'
+        working-directory: ycallr-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.python_cmd }} scripts/ci/package_binary.py \
+            --version "$GITHUB_REF_NAME" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --binary "${{ matrix.binary_path }}" \
+            --output-dir dist
+
+      - name: Package ReqPack artifact (Unix)
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Windows'
+        working-directory: ycallr-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.python_cmd }} scripts/ci/package_reqpack.py \
+            --version "$GITHUB_REF_NAME" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --binary "${{ matrix.binary_path }}" \
+            --output-dir dist
+
+      - name: Package release artifact (Windows)
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
+        working-directory: ycallr-cli
+        shell: pwsh
+        run: |
+          & ${{ matrix.python_cmd }} scripts/ci/package_binary.py `
+            --version $env:GITHUB_REF_NAME `
+            --platform '${{ matrix.platform }}' `
+            --arch '${{ matrix.arch }}' `
+            --binary '${{ matrix.binary_path }}' `
+            --output-dir dist
+
+      - name: Upload release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ycallr-cli/dist/*.tar.gz
+            ycallr-cli/dist/*.zip
+            ycallr-cli/dist/*.rqp
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout ycallr-cli
+        uses: actions/checkout@v4
+        with:
+          path: ycallr-cli
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Build ReqPack repository index
+        working-directory: ycallr-cli
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/build_reqpack_index.py --dist-dir ../dist --output ../dist/index.json
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="Automated release for ycallr ${VERSION}.\n\nIncludes tar.gz/zip binaries for linux, macOS, and Windows (x86_64 and aarch64), plus ReqPack .rqp packages and index.json for Linux and macOS."
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GH_REPO" --title "ycallr ${VERSION}" --notes "$NOTES"
+          fi
+          gh release edit "$GITHUB_REF_NAME" --repo "$GH_REPO" --draft=false --latest --title "ycallr ${VERSION}" --notes "$NOTES"
+          gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/*.rqp dist/index.json --repo "$GH_REPO" --clobber

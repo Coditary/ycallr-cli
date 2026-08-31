@@ -1,0 +1,28 @@
+{
+  "formatVersion": 1,
+  "name": "ycallr",
+  "version": @VERSION@,
+  "release": 1,
+  "revision": 0,
+  "summary": "YAML-based API caller CLI",
+  "description": "Fast API runner: YAML profiles compiled to protobuf, invoked via a zero-overhead HTTP client.",
+  "license": "MIT OR Apache-2.0",
+  "architecture": @ARCHITECTURE@,
+  "system": [@SYSTEM@],
+  "vendor": "Coditary",
+  "maintainerEmail": "Matographo@gmail.com",
+  "url": @URL@,
+  "homepage": "https://github.com/Coditary/ycallr-cli",
+  "sourceUrl": "https://github.com/Coditary/ycallr-core",
+  "buildDate": @BUILD_DATE@,
+  "tags": ["cli", "api", "http", "yaml", "ycallr"],
+  "payload": {
+    "path": "payload/payload.tar.zst",
+    "archive": "tar",
+    "compression": "zstd",
+    "hashAlgorithm": "sha256",
+    "hashFile": "hashes/payload.sha256",
+    "sizeCompressed": @SIZE_COMPRESSED@,
+    "sizeInstalledExpected": @SIZE_INSTALLED_EXPECTED@
+  }
+}

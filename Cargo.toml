@@ -1,9 +1,8 @@
 [package]
 name = "ycallr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-ycallr-core = { path = "../../core/ycallr-core", features = ["yaml", "client"] }
+ycallr-core = { path = "../ycallr-core", features = ["ffi"], default-features = false }
 serde_json = "1"
-dirs = "5"
