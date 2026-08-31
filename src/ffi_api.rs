@@ -1,7 +1,7 @@
 //! Safe wrappers around `ycallr.h` — the CLI talks to core only through the C ABI.
 
 use std::ffi::{CStr, CString};
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 use ycallr_core::ffi::{
@@ -55,7 +55,7 @@ fn cstring(s: &str) -> CString {
     CString::new(s).expect("NUL in string")
 }
 
-fn take_string(ptr: *mut i8) -> Option<String> {
+fn take_string(ptr: *mut c_char) -> Option<String> {
     if ptr.is_null() {
         return None;
     }
@@ -64,7 +64,7 @@ fn take_string(ptr: *mut i8) -> Option<String> {
     Some(s)
 }
 
-fn read_const_string(ptr: *const i8) -> Option<String> {
+fn read_const_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
