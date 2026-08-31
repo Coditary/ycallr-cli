@@ -1,0 +1,9 @@
+[package]
+name = "ycallr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ycallr-core = { path = "../../core/ycallr-core", features = ["yaml", "client"] }
+serde_json = "1"
+dirs = "5"
