@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout ycallr-cli
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ycallr-cli
 
       - name: Checkout ycallr-core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Coditary/ycallr-core
           path: ycallr-core
@@ -107,12 +107,12 @@ jobs:
 
     steps:
       - name: Checkout ycallr-cli
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ycallr-cli
 
       - name: Checkout ycallr-core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Coditary/ycallr-core
           path: ycallr-core
@@ -232,7 +232,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout ycallr-cli
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ycallr-cli
 
