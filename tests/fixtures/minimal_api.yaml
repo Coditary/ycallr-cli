@@ -1,0 +1,9 @@
+name: testapi
+version: "1.0.0"
+description: Minimal test API
+base_url: https://example.com
+commands:
+  ping:
+    endpoint: /ping
+    method: GET
+    description: Health check

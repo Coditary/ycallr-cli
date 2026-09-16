@@ -1,0 +1,17 @@
+name: envapi
+version: "1.0.0"
+description: API with required env for secret store tests
+base_url: https://example.com
+env:
+  - name: TEST_TOKEN
+    required: true
+auth:
+  test:
+    type: bearer
+    token: ${TEST_TOKEN}
+commands:
+  ping:
+    endpoint: /ping
+    method: GET
+    auth: test
+    description: Health check

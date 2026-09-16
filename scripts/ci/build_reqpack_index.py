@@ -31,7 +31,7 @@ def build_index(dist_dir: Path) -> dict[str, object]:
         metadata = load_metadata(archive_path)
         packages.append(
             {
-                "name": metadata["name"],
+                "name": metadata.get("indexName", metadata["name"]),
                 "version": metadata["version"],
                 "release": metadata["release"],
                 "revision": metadata["revision"],

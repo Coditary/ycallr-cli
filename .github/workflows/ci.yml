@@ -13,10 +13,56 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN_VERSION: "1.98.0"
 
 jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout ycallr-cli
+        uses: actions/checkout@v4
+        with:
+          path: ycallr-cli
+
+      - name: Checkout ycallr-core
+        uses: actions/checkout@v4
+        with:
+          repository: Coditary/ycallr-core
+          path: ycallr-core
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
+
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev zstd
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ycallr-cli -> target
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Quality checks
+        working-directory: ycallr-cli
+        run: make ci
+
   build:
     name: ${{ matrix.name }}
+    needs: quality
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -97,6 +143,8 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - uses: Swatinem/rust-cache@v2
         with:

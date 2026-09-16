@@ -1,5 +1,6 @@
 //! Safe wrappers around `ycallr.h` — the CLI talks to core only through the C ABI.
 
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::ptr;
@@ -10,11 +11,12 @@ use ycallr_core::ffi::{
     ycallr_command_get_method, ycallr_command_get_params_json, ycallr_command_get_path_params_json,
     ycallr_command_has_body, ycallr_command_is_branch, ycallr_command_is_leaf, ycallr_free_api,
     ycallr_free_command, ycallr_free_response, ycallr_get_base_url, ycallr_get_command,
-    ycallr_get_description, ycallr_get_env_json, ycallr_get_last_error, ycallr_get_last_install_result,
-    ycallr_get_name, ycallr_get_version, ycallr_install_yaml_file, ycallr_list_installed,
-    ycallr_list_subcommands, ycallr_load_installed, ycallr_missing_params_json,
-    ycallr_response_get_body_json, ycallr_response_get_message, ycallr_response_get_status,
-    ycallr_string_free,
+    ycallr_get_description, ycallr_get_env_json, ycallr_get_last_error,
+    ycallr_get_last_import_result, ycallr_get_last_install_result, ycallr_get_name,
+    ycallr_get_version, ycallr_import_openapi_file, ycallr_install_yaml_file,
+    ycallr_list_installed, ycallr_list_subcommands, ycallr_load_installed,
+    ycallr_missing_params_json, ycallr_response_get_body_json, ycallr_response_get_message,
+    ycallr_response_get_status, ycallr_set_base_url, ycallr_string_free,
 };
 
 pub type ApiHandle = *mut c_void;
@@ -89,23 +91,29 @@ impl Api {
     }
 
     pub fn name(&self) -> String {
-        read_const_string(ycallr_get_name(self.handle as *const _))
-            .unwrap_or_default()
+        read_const_string(ycallr_get_name(self.handle as *const _)).unwrap_or_default()
     }
 
     pub fn version(&self) -> String {
-        read_const_string(ycallr_get_version(self.handle as *const _))
-            .unwrap_or_default()
+        read_const_string(ycallr_get_version(self.handle as *const _)).unwrap_or_default()
     }
 
     pub fn description(&self) -> String {
-        read_const_string(ycallr_get_description(self.handle as *const _))
-            .unwrap_or_default()
+        read_const_string(ycallr_get_description(self.handle as *const _)).unwrap_or_default()
     }
 
     pub fn base_url(&self) -> String {
-        read_const_string(ycallr_get_base_url(self.handle as *const _))
-            .unwrap_or_default()
+        read_const_string(ycallr_get_base_url(self.handle as *const _)).unwrap_or_default()
+    }
+
+    #[allow(dead_code)]
+    pub fn set_base_url(&self, url: &str) -> Result<(), FfiError> {
+        let url_c = cstring(url);
+        let rc = ycallr_set_base_url(self.handle as *mut _, url_c.as_ptr());
+        if rc != 0 {
+            return Err(FfiError(last_error()));
+        }
+        Ok(())
     }
 
     pub fn env_vars(&self) -> Result<Vec<EnvVarInfo>, FfiError> {
@@ -123,10 +131,7 @@ impl Api {
                 .and_then(|n| n.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let required = v
-                .get("required")
-                .and_then(|r| r.as_bool())
-                .unwrap_or(true);
+            let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(true);
             out.push(EnvVarInfo { name, required });
         }
         Ok(out)
@@ -157,11 +162,8 @@ impl Api {
     ) -> Result<Vec<String>, FfiError> {
         let path_c = cstring(command_path);
         let params_c = cstring(params_json);
-        let ptr = ycallr_missing_params_json(
-            self.handle as *const _,
-            path_c.as_ptr(),
-            params_c.as_ptr(),
-        );
+        let ptr =
+            ycallr_missing_params_json(self.handle as *const _, path_c.as_ptr(), params_c.as_ptr());
         if ptr.is_null() {
             return Err(FfiError(last_error()));
         }
@@ -180,8 +182,18 @@ impl Api {
         take_string(ptr)
     }
 
+    #[allow(dead_code)]
     pub fn create_client(&self) -> Result<Client, FfiError> {
-        let handle = ycallr_client_new(self.handle as *const _, 0, ptr::null());
+        self.create_client_with_envs(&HashMap::new())
+    }
+
+    pub fn create_client_with_envs(
+        &self,
+        envs: &HashMap<String, String>,
+    ) -> Result<Client, FfiError> {
+        let json = serde_json::to_string(envs).map_err(|e| FfiError(e.to_string()))?;
+        let json_c = cstring(&json);
+        let handle = ycallr_client_new(self.handle as *const _, 0, json_c.as_ptr());
         if handle.is_null() {
             return Err(FfiError(last_error()));
         }
@@ -265,10 +277,7 @@ impl Client {
         let command_c = cstring(command);
         let params_c = cstring(params_json);
         let body_c = body_json.map(cstring);
-        let body_ptr = body_c
-            .as_ref()
-            .map(|c| c.as_ptr())
-            .unwrap_or(ptr::null());
+        let body_ptr = body_c.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null());
 
         let resp = ycallr_call(
             self.handle as *const _,
@@ -341,6 +350,60 @@ pub fn install_profile_file(path: &str) -> Result<(String, String), FfiError> {
     Ok((name, pb_path))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn import_openapi_file(
+    source: &str,
+    output: Option<&str>,
+    name: Option<&str>,
+    tag: Option<&str>,
+    base_url: Option<&str>,
+    nest_by: Option<&str>,
+    short_names: bool,
+    preset: Option<&str>,
+) -> Result<(String, String), FfiError> {
+    let source_c = cstring(source);
+    let output_c = output.map(cstring);
+    let name_c = name.map(cstring);
+    let tag_c = tag.map(cstring);
+    let base_url_c = base_url.map(cstring);
+    let nest_by_c = nest_by.map(cstring);
+    let preset_c = preset.map(cstring);
+    let short_names_flag: i32 = if short_names { 1 } else { 0 };
+
+    let rc = ycallr_import_openapi_file(
+        source_c.as_ptr(),
+        output_c.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null()),
+        name_c.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null()),
+        tag_c.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null()),
+        base_url_c
+            .as_ref()
+            .map(|c| c.as_ptr())
+            .unwrap_or(ptr::null()),
+        nest_by_c
+            .as_ref()
+            .map(|c| c.as_ptr())
+            .unwrap_or(ptr::null()),
+        short_names_flag,
+        preset_c.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null()),
+    );
+    if rc != 0 {
+        return Err(FfiError(last_error()));
+    }
+    let json = take_string(ycallr_get_last_import_result()).unwrap_or_else(|| "{}".to_string());
+    let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| FfiError(e.to_string()))?;
+    let name = v
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let yaml_path = v
+        .get("yaml_path")
+        .and_then(|p| p.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok((name, yaml_path))
+}
+
 pub fn list_installed() -> Result<Vec<(String, String)>, FfiError> {
     let json_ptr = ycallr_list_installed();
     if json_ptr.is_null() {
@@ -357,4 +420,190 @@ pub fn list_installed() -> Result<Vec<(String, String)>, FfiError> {
         out.push((name, desc));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    fn with_config_dir(dir: &std::path::Path, test: impl FnOnce()) {
+        use std::sync::Mutex;
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("YCALLR_CONFIG_DIR", dir);
+        std::env::set_var("HOME", dir);
+        std::env::set_var("USERPROFILE", dir);
+        test();
+        std::env::remove_var("YCALLR_CONFIG_DIR");
+        std::env::remove_var("HOME");
+        std::env::remove_var("USERPROFILE");
+    }
+
+    #[test]
+    fn load_installed_missing_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            assert!(Api::load_installed("missing").is_err());
+        });
+    }
+
+    #[test]
+    fn install_load_and_inspect_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            let yaml = fixture("minimal_api.yaml");
+            let (name, _pb) = install_profile_file(yaml.to_str().unwrap()).unwrap();
+            assert_eq!(name, "testapi");
+
+            let api = Api::load_installed("testapi").unwrap();
+            assert_eq!(api.name(), "testapi");
+            assert!(!api.version().is_empty());
+            assert!(!api.description().is_empty());
+            assert!(!api.base_url().is_empty());
+            assert!(api.env_vars().unwrap().is_empty());
+
+            let names = api.list_command_names("").unwrap();
+            assert!(names.contains(&"ping".to_string()));
+
+            let cmd = api.get_command("ping").unwrap();
+            assert!(cmd.is_leaf());
+            assert_eq!(cmd.method().as_deref(), Some("GET"));
+            assert_eq!(cmd.endpoint().as_deref(), Some("/ping"));
+
+            let missing = api.missing_params("ping", "{}").unwrap();
+            assert!(missing.is_empty());
+
+            let client = api.create_client_with_envs(&HashMap::new()).unwrap();
+            let _ = client.call("ping", "{}", None);
+        });
+    }
+
+    #[test]
+    fn list_installed_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            assert!(list_installed().unwrap().is_empty());
+            let yaml = fixture("minimal_api.yaml");
+            install_profile_file(yaml.to_str().unwrap()).unwrap();
+            let listed = list_installed().unwrap();
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].0, "testapi");
+        });
+    }
+
+    #[test]
+    fn ffi_error_display() {
+        let err = FfiError::new("boom");
+        assert_eq!(err.to_string(), "boom");
+    }
+
+    #[test]
+    fn install_missing_file_errors() {
+        assert!(install_profile_file("/no/such/profile.yaml").is_err());
+    }
+
+    #[test]
+    fn get_command_missing_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            let yaml = fixture("minimal_api.yaml");
+            install_profile_file(yaml.to_str().unwrap()).unwrap();
+            let api = Api::load_installed("testapi").unwrap();
+            assert!(api.get_command("missing").is_err());
+        });
+    }
+
+    #[test]
+    fn import_openapi_minimal_fixture() {
+        let spec = fixture("minimal_openapi.json");
+        let (name, yaml_path) = import_openapi_file(
+            spec.to_str().unwrap(),
+            None,
+            Some("miniapi"),
+            None,
+            None,
+            None,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(name, "miniapi");
+        assert!(yaml_path.ends_with(".yaml"));
+    }
+
+    #[test]
+    fn import_openapi_missing_file_errors() {
+        assert!(import_openapi_file(
+            "/no/such/spec.json",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn client_call_and_response_accessors() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            let mut server = mockito::Server::new();
+            let mock = server
+                .mock("GET", "/ping")
+                .with_status(200)
+                .with_body(r#"{"ok":true}"#)
+                .create();
+
+            let yaml = fixture("env_api.yaml");
+            install_profile_file(yaml.to_str().unwrap()).unwrap();
+            let api = Api::load_installed("envapi").unwrap();
+            api.set_base_url(&server.url()).unwrap();
+            let client = api
+                .create_client_with_envs(&HashMap::from([(
+                    "TEST_TOKEN".to_string(),
+                    "tok".to_string(),
+                )]))
+                .unwrap();
+            let response = client.call("ping", "{}", None).unwrap();
+            assert_eq!(response.status(), 200);
+            let _ = response.body_json();
+            let _ = response.message();
+            mock.assert();
+        });
+    }
+
+    #[test]
+    fn set_base_url_rejects_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            let yaml = fixture("minimal_api.yaml");
+            install_profile_file(yaml.to_str().unwrap()).unwrap();
+            let api = Api::load_installed("testapi").unwrap();
+            assert!(api.set_base_url("").is_err());
+        });
+    }
+
+    #[test]
+    fn missing_params_detects_required_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        with_config_dir(dir.path(), || {
+            let yaml = fixture("rich_api.yaml");
+            install_profile_file(yaml.to_str().unwrap()).unwrap();
+            let api = Api::load_installed("richapi").unwrap();
+            let missing = api.missing_params("repos.issues.open", "{}").unwrap();
+            assert!(missing.contains(&"owner".to_string()));
+            assert!(missing.contains(&"repo".to_string()));
+        });
+    }
 }

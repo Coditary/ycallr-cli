@@ -1,0 +1,64 @@
+name: richapi
+version: "1.0.0"
+description: Rich API for CLI coverage
+base_url: https://example.com
+env:
+  - name: API_KEY
+    required: true
+  - name: OPTIONAL_FLAG
+    required: false
+auth:
+  bearer:
+    type: bearer
+    token: ${API_KEY}
+commands:
+  repos:
+    description: Repository group
+    commands:
+      list:
+        endpoint: /repos
+        method: GET
+        auth: bearer
+        description: List repositories
+      issues:
+        description: Issues subgroup
+        commands:
+          open:
+            endpoint: /repos/{owner}/{repo}/issues
+            method: GET
+            auth: bearer
+            description: List open issues
+            params:
+              owner:
+                type: string
+                required: true
+                description: Owner login
+              repo:
+                type: string
+                required: true
+                description: Repository name
+              state:
+                type: string
+                required: false
+                description: Issue state filter
+                enum:
+                  - open
+                  - closed
+  create-item:
+    endpoint: /items
+    method: POST
+    auth: bearer
+    description: Create an item
+    body:
+      json:
+        title: "{title}"
+        note: "{note}"
+    params:
+      title:
+        type: string
+        required: true
+        description: Item title
+      note:
+        type: string
+        required: false
+        description: Optional note

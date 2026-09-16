@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 
 PRODUCT = "ycallr"
+INDEX_NAME = "ycallr-cli"
 GITHUB_REPO = "Coditary/ycallr-cli"
 RUNTIME_PATTERNS = {
     "linux": ["*.so", "*.so.*"],
@@ -134,6 +135,7 @@ def build_metadata(
     return {
         "formatVersion": 1,
         "name": PRODUCT,
+        "indexName": INDEX_NAME,
         "version": version,
         "release": 1,
         "revision": 0,

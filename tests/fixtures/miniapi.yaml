@@ -1,0 +1,13 @@
+name: miniapi
+version: 1.0.0
+base_url: https://example.com
+commands:
+  items:
+    commands:
+      listitems:
+        endpoint: /items
+        method: GET
+        responses:
+          success: '{status}'
+          failure: Error {status}
+          warn: null

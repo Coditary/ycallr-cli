@@ -1,0 +1,33 @@
+name: bodyapi
+version: "1.0.0"
+description: Body kinds for help text coverage
+base_url: https://example.com
+commands:
+  json-cmd:
+    endpoint: /json
+    method: POST
+    description: JSON body
+    body:
+      json:
+        x: 1
+  form-cmd:
+    endpoint: /form
+    method: POST
+    description: Form body
+    body:
+      form:
+        a: b
+  raw-cmd:
+    endpoint: /raw
+    method: POST
+    description: Raw body
+    body:
+      raw: hello
+  multipart-cmd:
+    endpoint: /multipart
+    method: POST
+    description: Multipart body
+    body:
+      multipart:
+        - name: file
+          file: /tmp/x
